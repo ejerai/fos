@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="FOS.App/FOS.App.csproj" />
+  <Project Path="FOS.Core/FOS.Core.csproj" />
+</Solution>
