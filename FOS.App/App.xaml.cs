@@ -44,10 +44,20 @@ public partial class App : System.Windows.Application
         _hook.Start();
     }
 
-    private void OnAltClick(int x, int y)
+    private async void OnAltClick(int x, int y)
     {
-        Log($"Alt+Klik di {x},{y}");
         _overlay?.ShowAt(x, y);
+
+        // Beri waktu Explorer memilih file yang baru diklik
+        await Task.Delay(150);
+
+        var paths = ExplorerSelection.GetSelectedPaths(x, y);
+        _overlay?.SetFile(paths.Length > 0 ? paths[0] : null, paths.Length);
+
+        // Hanya jumlah yang dicatat, bukan nama file (menjaga janji privasi)
+        Log(paths.Length == 0
+            ? $"Alt+Klik di {x},{y}: tidak ada file terpilih"
+            : $"Alt+Klik di {x},{y}: terpilih {paths.Length} item");
     }
 
     private static void Log(string text)

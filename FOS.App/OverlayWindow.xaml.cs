@@ -40,6 +40,7 @@ public partial class OverlayWindow : Window
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 
     private readonly DispatcherTimer _autoClose;
+    private TextBlock _centerText = null!;
 
     public event Action<string>? ItemClicked;
 
@@ -87,22 +88,23 @@ public partial class OverlayWindow : Window
         Canvas.SetTop(disc, c - discSize / 2);
         Ring.Children.Add(disc);
 
-        // Lingkaran tengah
+        // Lingkaran tengah (menampilkan "FOS" atau jenis file)
+        _centerText = new TextBlock
+        {
+            Text = "FOS",
+            Foreground = white,
+            FontSize = 16,
+            FontWeight = FontWeights.Bold,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = System.Windows.VerticalAlignment.Center
+        };
         var center = new Border
         {
             Width = centerSize,
             Height = centerSize,
             CornerRadius = new CornerRadius(centerSize / 2),
             Background = accent,
-            Child = new TextBlock
-            {
-                Text = "FOS",
-                Foreground = white,
-                FontSize = 16,
-                FontWeight = FontWeights.Bold,
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                VerticalAlignment = System.Windows.VerticalAlignment.Center
-            }
+            Child = _centerText
         };
         Canvas.SetLeft(center, c - centerSize / 2);
         Canvas.SetTop(center, c - centerSize / 2);
@@ -152,9 +154,21 @@ public partial class OverlayWindow : Window
         }
     }
 
+    // Mengubah tulisan di lingkaran tengah sesuai file yang terpilih
+    public void SetFile(string? path, int count)
+    {
+        if (path == null) { _centerText.Text = "FOS"; return; }
+        if (count > 1) { _centerText.Text = count + " file"; return; }
+
+        var ext = System.IO.Path.GetExtension(path).TrimStart('.').ToUpperInvariant();
+        _centerText.Text = ext.Length > 0 ? ext : "DIR";
+    }
+
     // x, y = posisi kursor di layar (piksel)
     public void ShowAt(int x, int y)
     {
+        SetFile(null, 0);
+
         BeginAnimation(OpacityProperty, null);
         Opacity = 0;
 
