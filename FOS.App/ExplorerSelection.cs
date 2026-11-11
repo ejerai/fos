@@ -19,17 +19,23 @@ public static class ExplorerSelection
     [DllImport("user32.dll")]
     private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
-    // Mengembalikan path file/folder yang terpilih di jendela Explorer
-    // yang ada di bawah titik (x, y). Kosong kalau bukan jendela Explorer.
-    public static string[] GetSelectedPaths(int x, int y)
+    // Panggil SEBELUM overlay ditampilkan, supaya yang didapat adalah
+    // jendela di bawah kursor, bukan overlay FOS sendiri.
+    public static IntPtr GetRootWindowAt(int x, int y)
+    {
+        IntPtr hwnd = WindowFromPoint(new POINT { X = x, Y = y });
+        return hwnd == IntPtr.Zero ? IntPtr.Zero : GetAncestor(hwnd, GA_ROOT);
+    }
+
+    // Mengembalikan path file/folder yang terpilih di jendela Explorer tersebut.
+    // Kosong kalau bukan jendela Explorer.
+    public static string[] GetSelectedPaths(IntPtr rootWindow)
     {
         var result = new List<string>();
+        if (rootWindow == IntPtr.Zero) return Array.Empty<string>();
+
         try
         {
-            IntPtr hwnd = WindowFromPoint(new POINT { X = x, Y = y });
-            if (hwnd == IntPtr.Zero) return Array.Empty<string>();
-            hwnd = GetAncestor(hwnd, GA_ROOT);
-
             var shellType = Type.GetTypeFromProgID("Shell.Application");
             if (shellType == null) return Array.Empty<string>();
 
@@ -43,7 +49,7 @@ public static class ExplorerSelection
                 {
                     dynamic window = windows.Item(i);
                     if (window == null) continue;
-                    if ((long)window.HWND != hwnd.ToInt64()) continue;
+                    if ((long)window.HWND != rootWindow.ToInt64()) continue;
 
                     dynamic items = window.Document.SelectedItems();
                     int n = items.Count;

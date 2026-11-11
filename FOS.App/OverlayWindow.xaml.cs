@@ -18,6 +18,12 @@ public partial class OverlayWindow : Window
     private const uint SWP_NOACTIVATE = 0x0010;
     private static readonly IntPtr HWND_TOPMOST = new(-1);
 
+    private const double Size = 300;
+    private const double DiscSize = 270;
+    private const double RingRadius = 95;
+    private const double ItemSize = 68;
+    private const double CenterSize = 70;
+
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT
     {
@@ -39,15 +45,22 @@ public partial class OverlayWindow : Window
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 
+    private readonly SolidColorBrush _normal = MakeBrush(0xFF, 0x2C, 0x2C, 0x34);
+    private readonly SolidColorBrush _hover = MakeBrush(0xFF, 0x4A, 0x3A, 0xB8);
+    private readonly SolidColorBrush _accent = MakeBrush(0xFF, 0x7C, 0x6C, 0xFF);
+    private readonly SolidColorBrush _white = MakeBrush(0xFF, 0xFF, 0xFF, 0xFF);
+
     private readonly DispatcherTimer _autoClose;
+    private readonly List<UIElement> _itemElements = new();
     private TextBlock _centerText = null!;
 
-    public event Action<string>? ItemClicked;
+    // Mengirim nomor urut tombol yang diklik
+    public event Action<int>? ItemClicked;
 
-    public OverlayWindow(IReadOnlyList<string> labels)
+    public OverlayWindow()
     {
         InitializeComponent();
-        BuildRing(labels);
+        BuildStatic();
 
         _autoClose = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         _autoClose.Tick += (_, _) => HideOverlay();
@@ -61,38 +74,27 @@ public partial class OverlayWindow : Window
     private static SolidColorBrush MakeBrush(byte a, byte r, byte g, byte b) =>
         new(System.Windows.Media.Color.FromArgb(a, r, g, b));
 
-    private void BuildRing(IReadOnlyList<string> labels)
+    // Bagian yang selalu ada: lingkaran latar dan lingkaran tengah
+    private void BuildStatic()
     {
-        const double size = 300;
-        const double discSize = 270;
-        const double ringRadius = 95;
-        const double itemSize = 68;
-        const double centerSize = 70;
-        double c = size / 2;
+        double c = Size / 2;
 
-        var normal = MakeBrush(0xFF, 0x2C, 0x2C, 0x34);
-        var hover = MakeBrush(0xFF, 0x4A, 0x3A, 0xB8);
-        var accent = MakeBrush(0xFF, 0x7C, 0x6C, 0xFF);
-        var white = MakeBrush(0xFF, 0xFF, 0xFF, 0xFF);
-
-        // Lingkaran latar
         var disc = new Ellipse
         {
-            Width = discSize,
-            Height = discSize,
+            Width = DiscSize,
+            Height = DiscSize,
             Fill = MakeBrush(0xC8, 0x12, 0x12, 0x18),
             Stroke = MakeBrush(0x40, 0xFF, 0xFF, 0xFF),
             StrokeThickness = 1
         };
-        Canvas.SetLeft(disc, c - discSize / 2);
-        Canvas.SetTop(disc, c - discSize / 2);
+        Canvas.SetLeft(disc, c - DiscSize / 2);
+        Canvas.SetTop(disc, c - DiscSize / 2);
         Ring.Children.Add(disc);
 
-        // Lingkaran tengah (menampilkan "FOS" atau jenis file)
         _centerText = new TextBlock
         {
             Text = "FOS",
-            Foreground = white,
+            Foreground = _white,
             FontSize = 16,
             FontWeight = FontWeights.Bold,
             HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
@@ -100,37 +102,46 @@ public partial class OverlayWindow : Window
         };
         var center = new Border
         {
-            Width = centerSize,
-            Height = centerSize,
-            CornerRadius = new CornerRadius(centerSize / 2),
-            Background = accent,
+            Width = CenterSize,
+            Height = CenterSize,
+            CornerRadius = new CornerRadius(CenterSize / 2),
+            Background = _accent,
             Child = _centerText
         };
-        Canvas.SetLeft(center, c - centerSize / 2);
-        Canvas.SetTop(center, c - centerSize / 2);
+        Canvas.SetLeft(center, c - CenterSize / 2);
+        Canvas.SetTop(center, c - CenterSize / 2);
         Ring.Children.Add(center);
+    }
 
-        // Item di sekeliling, mulai dari atas, searah jarum jam
+    // Mengganti tombol-tombol di sekeliling sesuai aksi yang tersedia
+    public void SetItems(IReadOnlyList<string> labels)
+    {
+        foreach (var element in _itemElements) Ring.Children.Remove(element);
+        _itemElements.Clear();
+
+        double c = Size / 2;
+
         for (int i = 0; i < labels.Count; i++)
         {
+            int index = i;
             double angle = (-90 + i * 360.0 / labels.Count) * Math.PI / 180.0;
-            double x = c + ringRadius * Math.Cos(angle) - itemSize / 2;
-            double y = c + ringRadius * Math.Sin(angle) - itemSize / 2;
-            string label = labels[i];
+            double x = c + RingRadius * Math.Cos(angle) - ItemSize / 2;
+            double y = c + RingRadius * Math.Sin(angle) - ItemSize / 2;
 
             var item = new Border
             {
-                Width = itemSize,
-                Height = itemSize,
-                CornerRadius = new CornerRadius(itemSize / 2),
-                Background = normal,
-                BorderBrush = accent,
+                Width = ItemSize,
+                Height = ItemSize,
+                CornerRadius = new CornerRadius(ItemSize / 2),
+                Background = _normal,
+                BorderBrush = _accent,
                 BorderThickness = new Thickness(1.5),
                 Cursor = System.Windows.Input.Cursors.Hand,
+                Opacity = 0,
                 Child = new TextBlock
                 {
-                    Text = label,
-                    Foreground = white,
+                    Text = labels[i],
+                    Foreground = _white,
                     FontSize = 11,
                     FontWeight = FontWeights.SemiBold,
                     TextAlignment = TextAlignment.Center,
@@ -140,17 +151,24 @@ public partial class OverlayWindow : Window
                 }
             };
 
-            item.MouseEnter += (_, _) => item.Background = hover;
-            item.MouseLeave += (_, _) => item.Background = normal;
+            item.MouseEnter += (_, _) => item.Background = _hover;
+            item.MouseLeave += (_, _) => item.Background = _normal;
             item.MouseLeftButtonUp += (_, _) =>
             {
-                ItemClicked?.Invoke(label);
+                ItemClicked?.Invoke(index);
                 HideOverlay();
             };
 
             Canvas.SetLeft(item, x);
             Canvas.SetTop(item, y);
             Ring.Children.Add(item);
+            _itemElements.Add(item);
+
+            // Muncul satu per satu
+            item.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+            {
+                BeginTime = TimeSpan.FromMilliseconds(40 * i)
+            });
         }
     }
 
@@ -168,6 +186,7 @@ public partial class OverlayWindow : Window
     public void ShowAt(int x, int y)
     {
         SetFile(null, 0);
+        SetItems(Array.Empty<string>());
 
         BeginAnimation(OpacityProperty, null);
         Opacity = 0;
@@ -177,7 +196,13 @@ public partial class OverlayWindow : Window
         var hwnd = new WindowInteropHelper(this).Handle;
         var dpi = VisualTreeHelper.GetDpi(this);
         int sizePx = (int)Math.Round(Width * dpi.DpiScaleX);
-        SetWindowPos(hwnd, HWND_TOPMOST, x - sizePx / 2, y - sizePx / 2, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
+
+        // Jaga agar lingkaran tidak terpotong di tepi layar
+        var area = System.Windows.Forms.Screen
+            .FromPoint(new System.Drawing.Point(x, y)).WorkingArea;
+        int left = Math.Clamp(x - sizePx / 2, area.Left, Math.Max(area.Left, area.Right - sizePx));
+        int top = Math.Clamp(y - sizePx / 2, area.Top, Math.Max(area.Top, area.Bottom - sizePx));
+        SetWindowPos(hwnd, HWND_TOPMOST, left, top, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE);
 
         var scale = new DoubleAnimation(0.6, 1.0, TimeSpan.FromMilliseconds(260))
         {
