@@ -6,7 +6,13 @@ public sealed class ActionRegistry
 
     public void Register(IFileAction action) => _actions.Add(action);
 
-    // Aksi yang cocok untuk file terpilih (maksimal 6 supaya lingkaran tetap rapi)
-    public IReadOnlyList<IFileAction> GetFor(IReadOnlyList<string> paths, int max = 6) =>
-        _actions.Where(a => a.CanHandle(paths)).Take(max).ToList();
+    // Aksi utama dulu (maksimal 6 supaya lingkaran tetap rapi).
+    // Aksi cadangan hanya muncul kalau tidak ada aksi utama.
+    public IReadOnlyList<IFileAction> GetFor(IReadOnlyList<string> paths, int max = 6)
+    {
+        var matching = _actions.Where(a => a.CanHandle(paths)).ToList();
+
+        var primary = matching.Where(a => !a.IsFallback).Take(max).ToList();
+        return primary.Count > 0 ? primary : matching.Take(max).ToList();
+    }
 }

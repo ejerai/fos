@@ -60,50 +60,28 @@ public sealed class ConvertImageAction : IFileAction
 
     private string ConvertOne(string path)
     {
-        using var source = SKBitmap.Decode(path);
-        if (source == null)
-            throw new InvalidOperationException("Format gambar tidak didukung");
+        // JPG tidak mendukung transparansi: gambar di atas latar putih
+        SKColor? background = _target == "jpg" ? SKColors.White : null;
 
-        SKBitmap bitmap = source;
-        SKBitmap? flattened = null;
+        using var bitmap = ImageLoader.Load(path, 0, background);
+        using var image = SKImage.FromBitmap(bitmap);
 
-        if (_target == "jpg")
+        var (format, quality) = _target switch
         {
-            // JPG tidak mendukung transparansi: gambar di atas latar putih
-            flattened = new SKBitmap(source.Width, source.Height, SKColorType.Rgba8888, SKAlphaType.Opaque);
-            using (var canvas = new SKCanvas(flattened))
-            {
-                canvas.Clear(SKColors.White);
-                canvas.DrawBitmap(source, 0, 0, new SKSamplingOptions());
-            }
-            bitmap = flattened;
-        }
+            "png" => (SKEncodedImageFormat.Png, 100),
+            "jpg" => (SKEncodedImageFormat.Jpeg, 90),
+            _ => (SKEncodedImageFormat.Webp, 85)
+        };
 
-        try
-        {
-            using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(format, quality);
+        if (data == null)
+            throw new InvalidOperationException("Gagal menyimpan gambar");
 
-            var (format, quality) = _target switch
-            {
-                "png" => (SKEncodedImageFormat.Png, 100),
-                "jpg" => (SKEncodedImageFormat.Jpeg, 90),
-                _ => (SKEncodedImageFormat.Webp, 85)
-            };
+        var outPath = FileNaming.UniquePath(Path.ChangeExtension(path, _target));
+        File.WriteAllBytes(outPath, data.ToArray());
 
-            using var data = image.Encode(format, quality);
-            if (data == null)
-                throw new InvalidOperationException("Gagal menyimpan gambar");
-
-            var outPath = FileNaming.UniquePath(Path.ChangeExtension(path, _target));
-            File.WriteAllBytes(outPath, data.ToArray());
-
-            long before = new FileInfo(path).Length;
-            long after = new FileInfo(outPath).Length;
-            return $"{Path.GetFileName(outPath)} ({FileNaming.FormatSize(before)} → {FileNaming.FormatSize(after)})";
-        }
-        finally
-        {
-            flattened?.Dispose();
-        }
+        long before = new FileInfo(path).Length;
+        long after = new FileInfo(outPath).Length;
+        return $"{Path.GetFileName(outPath)} ({FileNaming.FormatSize(before)} → {FileNaming.FormatSize(after)})";
     }
 }

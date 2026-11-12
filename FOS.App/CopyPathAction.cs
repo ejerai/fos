@@ -5,7 +5,7 @@ namespace FOS.App;
 public sealed class CopyPathAction : IFileAction
 {
     public string Label => "Salin Path";
-
+    public bool IsFallback => true;
     public bool CanHandle(IReadOnlyList<string> paths) => paths.Count > 0;
 
     public Task<ActionResult> RunAsync(IReadOnlyList<string> paths)

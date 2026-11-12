@@ -20,7 +20,8 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(System.Windows.StartupEventArgs e)
     {
         base.OnStartup(e);
-
+        
+        _registry.Register(new CompressImageAction());
         _registry.Register(new ConvertImageAction("png"));
         _registry.Register(new ConvertImageAction("jpg"));
         _registry.Register(new ConvertImageAction("webp"));
