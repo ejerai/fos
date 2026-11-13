@@ -6,6 +6,8 @@ public sealed class OpenFolderAction : IFileAction
 {
     public string Label => "Buka Folder";
 
+    public bool IsFallback => true;
+
     public bool CanHandle(IReadOnlyList<string> paths) => paths.Count == 1;
 
     public Task<ActionResult> RunAsync(IReadOnlyList<string> paths)

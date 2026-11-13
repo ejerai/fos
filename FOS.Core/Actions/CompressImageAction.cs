@@ -9,6 +9,9 @@ public sealed class CompressImageAction : IFileAction
     private const int MaxSide = 2000;
     private const int Quality = 70;
 
+    // Hasil yang hematnya kurang dari ini dianggap tidak berarti dan tidak disimpan
+    private const double MinSavingRatio = 0.05;
+
     private static readonly HashSet<string> Extensions =
         new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp" };
 
@@ -79,8 +82,8 @@ public sealed class CompressImageAction : IFileAction
 
         long before = new FileInfo(path).Length;
 
-        // Jangan menyimpan hasil yang tidak lebih kecil dari 5%
-        if (data.Size >= before)
+        // Jangan menyimpan hasil yang hematnya kurang dari 5%
+        if (data.Size > before * (1 - MinSavingRatio))
             return new Outcome(false, before, before, Path.GetFileName(path));
 
         var dir = Path.GetDirectoryName(path) ?? "";

@@ -25,6 +25,7 @@ public partial class App : System.Windows.Application
         _registry.Register(new ConvertImageAction("png"));
         _registry.Register(new ConvertImageAction("jpg"));
         _registry.Register(new ConvertImageAction("webp"));
+        _registry.Register(new ImageToPdfAction());
         _registry.Register(new CopyPathAction());
         _registry.Register(new OpenFolderAction());
 
