@@ -1,6 +1,7 @@
 ﻿using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
+using System.Windows.Threading;
 using FOS.Core;
 using FOS.Core.Actions;
 
@@ -11,16 +12,18 @@ public partial class App : System.Windows.Application
     private NotifyIcon? _tray;
     private MouseHook? _hook;
     private OverlayWindow? _overlay;
+    private DispatcherTimer? _focusWatch;
 
     private readonly ActionRegistry _registry = new();
     private IReadOnlyList<IFileAction> _currentActions = Array.Empty<IFileAction>();
     private IReadOnlyList<string> _currentPaths = Array.Empty<string>();
+    private IntPtr _targetWindow = IntPtr.Zero;
     private int _clickVersion;
 
     protected override void OnStartup(System.Windows.StartupEventArgs e)
     {
         base.OnStartup(e);
-        
+
         _registry.Register(new CompressImageAction());
         _registry.Register(new ConvertImageAction("png"));
         _registry.Register(new ConvertImageAction("jpg"));
@@ -53,17 +56,34 @@ public partial class App : System.Windows.Application
         });
         _hook.AltClick += (x, y) => Dispatcher.InvokeAsync(() => OnAltClick(x, y));
         _hook.Start();
+
+        // Tutup lingkaran kalau jendela Explorer tidak lagi aktif
+        _focusWatch = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _focusWatch.Tick += (_, _) =>
+        {
+            if (_overlay is { IsVisible: true }
+                && _targetWindow != IntPtr.Zero
+                && ExplorerSelection.GetForegroundRoot() != _targetWindow)
+            {
+                _overlay.HideOverlay();
+            }
+        };
+        _focusWatch.Start();
     }
 
     private async void OnAltClick(int x, int y)
     {
         int version = ++_clickVersion;
+
+        // Mencegah Windows menganggap Alt sebagai "tekan Alt saja" saat dilepas
         MouseHook.MaskAltRelease();
+
         // Tutup overlay lama, lalu tangkap jendela di bawah kursor
         // SEBELUM overlay baru muncul
         _overlay?.HideOverlay();
         var target = ExplorerSelection.GetRootWindowAt(x, y);
 
+        _targetWindow = IntPtr.Zero;
         _currentActions = Array.Empty<IFileAction>();
         _currentPaths = Array.Empty<string>();
         _overlay?.ShowAt(x, y);
@@ -79,6 +99,7 @@ public partial class App : System.Windows.Application
 
         if (paths.Length > 0)
         {
+            _targetWindow = target;
             _currentPaths = paths;
             _currentActions = _registry.GetFor(paths);
             _overlay?.SetItems(_currentActions.Select(a => a.Label).ToList());
@@ -119,6 +140,7 @@ public partial class App : System.Windows.Application
 
     private void ExitApp()
     {
+        _focusWatch?.Stop();
         _hook?.Dispose();
         _overlay?.Close();
         if (_tray != null)

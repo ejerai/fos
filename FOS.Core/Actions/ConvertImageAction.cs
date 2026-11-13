@@ -22,10 +22,10 @@ public sealed class ConvertImageAction : IFileAction
         _ => "Ke " + _target
     };
 
-    // Muncul hanya kalau semua file adalah gambar yang didukung
-    // dan belum berformat tujuan
+    // Muncul kalau semua file adalah gambar yang didukung dan minimal satu
+    // belum berformat tujuan. File yang sudah berformat tujuan dilewati.
     public bool CanHandle(IReadOnlyList<string> paths) =>
-        paths.Count > 0 && paths.All(p => IsSupported(p) && !IsAlreadyTarget(p));
+        paths.Count > 0 && paths.All(IsSupported) && paths.Any(p => !IsAlreadyTarget(p));
 
     private static bool IsSupported(string path) =>
         InputExtensions.Contains(Path.GetExtension(path));
@@ -39,10 +39,13 @@ public sealed class ConvertImageAction : IFileAction
 
     public async Task<ActionResult> RunAsync(IReadOnlyList<string> paths)
     {
+        var todo = paths.Where(p => !IsAlreadyTarget(p)).ToList();
+        int skipped = paths.Count - todo.Count;
+
         int done = 0;
         string lastMessage = "";
 
-        foreach (var path in paths)
+        foreach (var path in todo)
         {
             try
             {
@@ -55,7 +58,14 @@ public sealed class ConvertImageAction : IFileAction
             }
         }
 
-        return new ActionResult(true, done == 1 ? lastMessage : $"{done} gambar dikonversi");
+        if (todo.Count == 1 && skipped == 0)
+            return new ActionResult(true, lastMessage);
+
+        string message = $"{done} gambar dikonversi";
+        if (skipped > 0)
+            message += $", {skipped} dilewati (sudah {_target.ToUpperInvariant()})";
+
+        return new ActionResult(true, message);
     }
 
     private string ConvertOne(string path)

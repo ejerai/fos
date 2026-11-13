@@ -33,8 +33,8 @@ public sealed class ImageToPdfAction : IFileAction
     {
         // Urutan halaman mengikuti nama file
         var ordered = paths
-            .OrderBy(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        .OrderBy(p => Path.GetFileName(p), new NaturalFileNameComparer())
+        .ToList();
 
         var pdf = new SimplePdfBuilder();
 

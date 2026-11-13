@@ -26,6 +26,16 @@ public static class ExplorerSelection
         IntPtr hwnd = WindowFromPoint(new POINT { X = x, Y = y });
         return hwnd == IntPtr.Zero ? IntPtr.Zero : GetAncestor(hwnd, GA_ROOT);
     }
+        [DllImport("user32.dll")]
+        
+    private static extern IntPtr GetForegroundWindow();
+
+    // Jendela utama yang sedang aktif
+    public static IntPtr GetForegroundRoot()
+    {
+        var hwnd = GetForegroundWindow();
+        return hwnd == IntPtr.Zero ? IntPtr.Zero : GetAncestor(hwnd, GA_ROOT);
+    }
 
     // Mengembalikan path file/folder yang terpilih di jendela Explorer tersebut.
     // Kosong kalau bukan jendela Explorer.
