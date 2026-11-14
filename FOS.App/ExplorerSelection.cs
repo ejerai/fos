@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace FOS.App;
 
@@ -19,6 +20,12 @@ public static class ExplorerSelection
     [DllImport("user32.dll")]
     private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
     // Panggil SEBELUM overlay ditampilkan, supaya yang didapat adalah
     // jendela di bawah kursor, bukan overlay FOS sendiri.
     public static IntPtr GetRootWindowAt(int x, int y)
@@ -26,9 +33,6 @@ public static class ExplorerSelection
         IntPtr hwnd = WindowFromPoint(new POINT { X = x, Y = y });
         return hwnd == IntPtr.Zero ? IntPtr.Zero : GetAncestor(hwnd, GA_ROOT);
     }
-        [DllImport("user32.dll")]
-        
-    private static extern IntPtr GetForegroundWindow();
 
     // Jendela utama yang sedang aktif
     public static IntPtr GetForegroundRoot()
@@ -36,6 +40,18 @@ public static class ExplorerSelection
         var hwnd = GetForegroundWindow();
         return hwnd == IntPtr.Zero ? IntPtr.Zero : GetAncestor(hwnd, GA_ROOT);
     }
+
+    // Jendela File Explorer biasa (Desktop ditambahkan di langkah berikutnya)
+    public static bool IsExplorerWindow(IntPtr rootWindow)
+    {
+        if (rootWindow == IntPtr.Zero) return false;
+        var name = new StringBuilder(64);
+        return GetClassName(rootWindow, name, name.Capacity) > 0
+               && name.ToString() == "CabinetWClass";
+    }
+
+    public static bool IsExplorerAt(int x, int y) =>
+        IsExplorerWindow(GetRootWindowAt(x, y));
 
     // Mengembalikan path file/folder yang terpilih di jendela Explorer tersebut.
     // Kosong kalau bukan jendela Explorer.

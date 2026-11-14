@@ -90,8 +90,13 @@ public sealed class MouseHook : IDisposable
     // Setiap klik kiri (dipakai untuk menutup overlay saat klik di luar)
     public event Action<int, int>? LeftClick;
 
-    // Klik kiri sambil menahan Alt
+    // Klik kiri sambil menahan Alt (hanya kalau lolos AltClickFilter)
     public event Action<int, int>? AltClick;
+
+    // Menentukan apakah Alt + klik di posisi (x, y) boleh ditangani FOS.
+    // Kalau tidak diizinkan, klik dibiarkan bekerja seperti biasa di aplikasinya.
+    // Dipanggil di dalam hook, jadi harus cepat.
+    public Func<int, int, bool>? AltClickFilter { get; set; }
 
     public MouseHook()
     {
@@ -113,7 +118,7 @@ public sealed class MouseHook : IDisposable
     // Mencegah Windows menganggap Alt sebagai "tekan Alt saja" saat dilepas
     // (yang memindahkan fokus keyboard Explorer ke toolbar).
     // Hanya bekerja kalau Alt masih ditahan.
-    public static void MaskAltRelease()
+    private static void MaskAltRelease()
     {
         if ((GetAsyncKeyState(VK_MENU) & 0x8000) == 0) return;
 
@@ -143,7 +148,12 @@ public sealed class MouseHook : IDisposable
 
             if ((GetAsyncKeyState(VK_MENU) & 0x8000) != 0)
             {
-                AltClick?.Invoke(data.pt.X, data.pt.Y);
+                if (AltClickFilter == null || AltClickFilter(data.pt.X, data.pt.Y))
+                {
+                    // Dilakukan SEKARANG, selagi Alt pasti masih ditahan
+                    MaskAltRelease();
+                    AltClick?.Invoke(data.pt.X, data.pt.Y);
+                }
             }
         }
 
