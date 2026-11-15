@@ -12,8 +12,10 @@ public partial class App : System.Windows.Application
     private NotifyIcon? _tray;
     private MouseHook? _hook;
     private OverlayWindow? _overlay;
+    private SettingsWindow? _settingsWindow;
     private DispatcherTimer? _focusWatch;
 
+    private readonly SettingsStore _settings = new();
     private readonly ExplorerReader _reader = new();
     private readonly ActionRegistry _registry = new();
     private IReadOnlyList<IFileAction> _currentActions = Array.Empty<IFileAction>();
@@ -25,8 +27,8 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
 
-        _registry.Register(new CompressImageAction());
-        _registry.Register(new CompressOfficeAction());
+        _registry.Register(new CompressImageAction(() => _settings.Profile));
+        _registry.Register(new CompressOfficeAction(() => _settings.Profile));
         _registry.Register(new ConvertImageAction("png"));
         _registry.Register(new ConvertImageAction("jpg"));
         _registry.Register(new ConvertImageAction("webp"));
@@ -35,6 +37,7 @@ public partial class App : System.Windows.Application
         _registry.Register(new OpenFolderAction());
 
         var menu = new ContextMenuStrip();
+        menu.Items.Add("Pengaturan", null, (_, _) => OpenSettings(false));
         menu.Items.Add("Keluar", null, (_, _) => ExitApp());
 
         _tray = new NotifyIcon
@@ -44,14 +47,14 @@ public partial class App : System.Windows.Application
             Visible = true,
             ContextMenuStrip = menu
         };
+        _tray.DoubleClick += (_, _) => OpenSettings(false);
 
         _overlay = new OverlayWindow();
         _overlay.ItemClicked += RunAction;
 
         _hook = new MouseHook();
 
-        // Alt + klik hanya ditangani di jendela Explorer, atau di dalam lingkaran FOS
-        // sendiri (supaya bisa dipindahkan). Di aplikasi lain dibiarkan seperti biasa.
+        // alt + klik hanya di explorer atau di dalam lingkaran fos
         _hook.AltClickFilter = (x, y) =>
             (_overlay is { IsVisible: true } && _overlay.ContainsScreenPoint(x, y))
             || ExplorerSelection.IsExplorerAt(x, y);
@@ -66,7 +69,7 @@ public partial class App : System.Windows.Application
         _hook.AltClick += (x, y) => Dispatcher.InvokeAsync(() => OnAltClick(x, y));
         _hook.Start();
 
-        // Tutup lingkaran kalau jendela Explorer tidak lagi aktif
+        // tutup lingkaran kalau explorer tidak lagi aktif
         _focusWatch = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _focusWatch.Tick += (_, _) =>
         {
@@ -78,11 +81,26 @@ public partial class App : System.Windows.Application
             }
         };
         _focusWatch.Start();
+
+        if (_settings.IsFirstRun) OpenSettings(true);
     }
 
-    // Alt + klik pada file yang sudah ada di dalam pilihan banyak file: Explorer
-    // menciutkan pilihan menjadi satu file saat tombol mouse dilepas.
-    // Kalau bacaan akhir hanyalah salah satu file dari bacaan awal, pakai bacaan awal.
+    private void OpenSettings(bool firstRun)
+    {
+        if (_settingsWindow != null)
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+
+        if (firstRun) _settings.Update(s => s.FirstRunDone = true);
+
+        _settingsWindow = new SettingsWindow(_settings, firstRun);
+        _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Show();
+    }
+
+    // klik file di dalam pilihan banyak: pakai bacaan awal
     private static string[] Choose(string[] early, string[] late)
     {
         if (late.Length == 0) return early;
@@ -95,13 +113,10 @@ public partial class App : System.Windows.Application
     {
         int version = ++_clickVersion;
 
-        // Tutup overlay lama, lalu tangkap jendela di bawah kursor
-        // SEBELUM overlay baru muncul
         _overlay?.HideOverlay();
         var target = ExplorerSelection.GetRootWindowAt(x, y);
 
-        // Bacaan awal dimulai SEKARANG, sebelum Explorer sempat menciutkan
-        // pilihan banyak file menjadi satu
+        // bacaan awal, sebelum explorer menciutkan pilihan
         var earlyTask = _reader.ReadAsync(target);
 
         _targetWindow = IntPtr.Zero;
@@ -109,7 +124,6 @@ public partial class App : System.Windows.Application
         _currentPaths = Array.Empty<string>();
         _overlay?.ShowAt(x, y);
 
-        // Beri waktu Explorer memperbarui pilihan, lalu baca lagi
         await Task.Delay(150);
         if (version != _clickVersion) return;
 
@@ -120,11 +134,10 @@ public partial class App : System.Windows.Application
 
         var paths = Choose(early.Paths, late.Paths);
 
-        // Hanya jumlah dan waktu yang dicatat, bukan nama file (menjaga janji privasi)
+        // log hanya jumlah dan waktu
         Log($"Alt+Klik di {x},{y}: bacaan awal {early.Paths.Length} item ({early.Ms} ms), " +
             $"bacaan akhir {late.Paths.Length} item ({late.Ms} ms), dipakai {paths.Length}");
 
-        // Tidak ada file terpilih (misalnya klik di ruang kosong): tutup lingkaran
         if (paths.Length == 0)
         {
             _overlay?.HideOverlay();

@@ -2,12 +2,17 @@ namespace FOS.Core.Actions;
 
 public sealed class CompressOfficeAction : IFileAction
 {
-    private const int MaxSide = 1600;
-    private const int Quality = 75;
     private const double MinSavingRatio = 0.05;
 
     private static readonly HashSet<string> Extensions =
         new(StringComparer.OrdinalIgnoreCase) { ".docx", ".pptx", ".xlsx" };
+
+    private readonly Func<CompressProfile> _profile;
+
+    public CompressOfficeAction(Func<CompressProfile> profile)
+    {
+        _profile = profile;
+    }
 
     public string Label => "Kompres";
 
@@ -18,13 +23,14 @@ public sealed class CompressOfficeAction : IFileAction
 
     public async Task<ActionResult> RunAsync(IReadOnlyList<string> paths)
     {
+        var profile = _profile();
         var saved = new List<Outcome>();
 
         foreach (var path in paths)
         {
             try
             {
-                var outcome = await Task.Run(() => CompressOne(path));
+                var outcome = await Task.Run(() => CompressOne(path, profile));
                 if (outcome != null) saved.Add(outcome);
             }
             catch (Exception ex)
@@ -51,7 +57,7 @@ public sealed class CompressOfficeAction : IFileAction
             : new ActionResult(true, $"{saved.Count} dokumen dikompres ({sizes})");
     }
 
-    private static Outcome? CompressOne(string path)
+    private static Outcome? CompressOne(string path, CompressProfile profile)
     {
         var dir = Path.GetDirectoryName(path) ?? "";
         var name = Path.GetFileNameWithoutExtension(path) + "-compressed" + Path.GetExtension(path);
@@ -60,7 +66,7 @@ public sealed class CompressOfficeAction : IFileAction
         try
         {
             OfficeCompressor.Compress(path, outPath,
-                (bytes, ext) => ImageRecompressor.Recompress(bytes, ext, MaxSide, Quality));
+                (bytes, ext) => ImageRecompressor.Recompress(bytes, ext, profile.MaxSide, profile.Quality));
 
             long before = new FileInfo(path).Length;
             long after = new FileInfo(outPath).Length;

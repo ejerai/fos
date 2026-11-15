@@ -4,16 +4,17 @@ namespace FOS.Core.Actions;
 
 public sealed class CompressImageAction : IFileAction
 {
-    // Sisi terpanjang maksimal (piksel) dan kualitas untuk JPG dan WebP.
-    // Ubah angka ini kalau mau kompresi lebih ringan atau lebih kuat.
-    private const int MaxSide = 2000;
-    private const int Quality = 70;
-
-    // Hasil yang hematnya kurang dari ini dianggap tidak berarti dan tidak disimpan
     private const double MinSavingRatio = 0.05;
 
     private static readonly HashSet<string> Extensions =
         new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp" };
+
+    private readonly Func<CompressProfile> _profile;
+
+    public CompressImageAction(Func<CompressProfile> profile)
+    {
+        _profile = profile;
+    }
 
     public string Label => "Kompres";
 
@@ -24,13 +25,14 @@ public sealed class CompressImageAction : IFileAction
 
     public async Task<ActionResult> RunAsync(IReadOnlyList<string> paths)
     {
+        var profile = _profile();
         var outcomes = new List<Outcome>();
 
         foreach (var path in paths)
         {
             try
             {
-                outcomes.Add(await Task.Run(() => CompressOne(path)));
+                outcomes.Add(await Task.Run(() => CompressOne(path, profile)));
             }
             catch (Exception ex)
             {
@@ -61,20 +63,19 @@ public sealed class CompressImageAction : IFileAction
         return new ActionResult(true, $"{saved.Count} gambar dikompres ({sizes}){tail}");
     }
 
-    private static Outcome CompressOne(string path)
+    private static Outcome CompressOne(string path, CompressProfile profile)
     {
         var ext = Path.GetExtension(path);
         var (format, quality) = ext.ToLowerInvariant() switch
         {
             ".png" => (SKEncodedImageFormat.Png, 100),
-            ".webp" => (SKEncodedImageFormat.Webp, Quality),
-            _ => (SKEncodedImageFormat.Jpeg, Quality)
+            ".webp" => (SKEncodedImageFormat.Webp, profile.Quality),
+            _ => (SKEncodedImageFormat.Jpeg, profile.Quality)
         };
 
-        // JPG tidak mendukung transparansi, PNG dan WebP tetap mempertahankannya
         SKColor? background = format == SKEncodedImageFormat.Jpeg ? SKColors.White : null;
 
-        using var bitmap = ImageLoader.Load(path, MaxSide, background);
+        using var bitmap = ImageLoader.Load(path, profile.MaxSide, background);
         using var image = SKImage.FromBitmap(bitmap);
         using var data = image.Encode(format, quality);
         if (data == null)
@@ -82,7 +83,7 @@ public sealed class CompressImageAction : IFileAction
 
         long before = new FileInfo(path).Length;
 
-        // Jangan menyimpan hasil yang hematnya kurang dari 5%
+        // hemat kurang dari 5% dibuang
         if (data.Size > before * (1 - MinSavingRatio))
             return new Outcome(false, before, before, Path.GetFileName(path));
 
