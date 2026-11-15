@@ -164,10 +164,10 @@ public partial class OverlayWindow : Window
             Ring.Children.Add(item);
             _itemElements.Add(item);
 
-            // Muncul satu per satu
-            item.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+            // Muncul satu per satu (110 ms per tombol, selang 20 ms antar tombol)
+            item.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(110))
             {
-                BeginTime = TimeSpan.FromMilliseconds(40 * i)
+                BeginTime = TimeSpan.FromMilliseconds(20 * i)
             });
         }
     }

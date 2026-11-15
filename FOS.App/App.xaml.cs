@@ -14,6 +14,7 @@ public partial class App : System.Windows.Application
     private OverlayWindow? _overlay;
     private DispatcherTimer? _focusWatch;
 
+    private readonly ExplorerReader _reader = new();
     private readonly ActionRegistry _registry = new();
     private IReadOnlyList<IFileAction> _currentActions = Array.Empty<IFileAction>();
     private IReadOnlyList<string> _currentPaths = Array.Empty<string>();
@@ -25,6 +26,7 @@ public partial class App : System.Windows.Application
         base.OnStartup(e);
 
         _registry.Register(new CompressImageAction());
+        _registry.Register(new CompressOfficeAction());
         _registry.Register(new ConvertImageAction("png"));
         _registry.Register(new ConvertImageAction("jpg"));
         _registry.Register(new ConvertImageAction("webp"));
@@ -78,6 +80,17 @@ public partial class App : System.Windows.Application
         _focusWatch.Start();
     }
 
+    // Alt + klik pada file yang sudah ada di dalam pilihan banyak file: Explorer
+    // menciutkan pilihan menjadi satu file saat tombol mouse dilepas.
+    // Kalau bacaan akhir hanyalah salah satu file dari bacaan awal, pakai bacaan awal.
+    private static string[] Choose(string[] early, string[] late)
+    {
+        if (late.Length == 0) return early;
+
+        bool lateInsideEarly = late.All(p => early.Contains(p, StringComparer.OrdinalIgnoreCase));
+        return early.Length > late.Length && lateInsideEarly ? early : late;
+    }
+
     private async void OnAltClick(int x, int y)
     {
         int version = ++_clickVersion;
@@ -87,23 +100,34 @@ public partial class App : System.Windows.Application
         _overlay?.HideOverlay();
         var target = ExplorerSelection.GetRootWindowAt(x, y);
 
+        // Bacaan awal dimulai SEKARANG, sebelum Explorer sempat menciutkan
+        // pilihan banyak file menjadi satu
+        var earlyTask = _reader.ReadAsync(target);
+
         _targetWindow = IntPtr.Zero;
         _currentActions = Array.Empty<IFileAction>();
         _currentPaths = Array.Empty<string>();
         _overlay?.ShowAt(x, y);
 
-        // Beri waktu Explorer memilih file yang baru diklik
+        // Beri waktu Explorer memperbarui pilihan, lalu baca lagi
         await Task.Delay(150);
         if (version != _clickVersion) return;
 
-        var paths = ExplorerSelection.GetSelectedPaths(target);
+        var lateTask = _reader.ReadAsync(target);
+        var early = await earlyTask;
+        var late = await lateTask;
         if (version != _clickVersion) return;
+
+        var paths = Choose(early.Paths, late.Paths);
+
+        // Hanya jumlah dan waktu yang dicatat, bukan nama file (menjaga janji privasi)
+        Log($"Alt+Klik di {x},{y}: bacaan awal {early.Paths.Length} item ({early.Ms} ms), " +
+            $"bacaan akhir {late.Paths.Length} item ({late.Ms} ms), dipakai {paths.Length}");
 
         // Tidak ada file terpilih (misalnya klik di ruang kosong): tutup lingkaran
         if (paths.Length == 0)
         {
             _overlay?.HideOverlay();
-            Log($"Alt+Klik di {x},{y}: tidak ada file terpilih");
             return;
         }
 
@@ -112,9 +136,6 @@ public partial class App : System.Windows.Application
         _currentActions = _registry.GetFor(paths);
         _overlay?.SetFile(paths[0], paths.Length);
         _overlay?.SetItems(_currentActions.Select(a => a.Label).ToList());
-
-        // Hanya jumlah yang dicatat, bukan nama file (menjaga janji privasi)
-        Log($"Alt+Klik di {x},{y}: terpilih {paths.Length} item, {_currentActions.Count} aksi");
     }
 
     private async void RunAction(int index)
@@ -123,7 +144,7 @@ public partial class App : System.Windows.Application
 
         var action = _currentActions[index];
         var paths = _currentPaths;
-        Log($"Aksi dijalankan: {action.Label}");
+        Log($"Aksi dijalankan: {action.Label} ({paths.Count} item)");
 
         try
         {
@@ -148,6 +169,7 @@ public partial class App : System.Windows.Application
     {
         _focusWatch?.Stop();
         _hook?.Dispose();
+        _reader.Dispose();
         _overlay?.Close();
         if (_tray != null)
         {
