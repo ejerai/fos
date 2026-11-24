@@ -27,8 +27,8 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
 
-        _registry.Register(new CompressImageAction(() => _settings.Profile));
-        _registry.Register(new CompressOfficeAction(() => _settings.Profile));
+        _registry.Register(new CompressImageAction(() => _settings.TargetPercent));
+        _registry.Register(new CompressOfficeAction(() => _settings.TargetPercent));
         _registry.Register(new ConvertImageAction("png"));
         _registry.Register(new ConvertImageAction("jpg"));
         _registry.Register(new ConvertImageAction("webp"));

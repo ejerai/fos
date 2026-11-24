@@ -7,10 +7,16 @@ internal static class ImageLoader
     public static SKBitmap Load(string path, int maxSide = 0, SKColor? background = null)
     {
         using var stream = File.OpenRead(path);
-        return Load(stream, maxSide, background);
+        return Render(stream, 0f, maxSide, background);
     }
 
-    public static SKBitmap Load(Stream stream, int maxSide = 0, SKColor? background = null)
+    public static SKBitmap Load(Stream stream, int maxSide = 0, SKColor? background = null) =>
+        Render(stream, 0f, maxSide, background);
+
+    public static SKBitmap LoadScaled(Stream stream, float scale, SKColor? background = null) =>
+        Render(stream, scale, 0, background);
+
+    private static SKBitmap Render(Stream stream, float fixedScale, int maxSide, SKColor? background)
     {
         using var codec = SKCodec.Create(stream)
             ?? throw new InvalidOperationException("Format gambar tidak didukung");
@@ -31,7 +37,8 @@ internal static class ImageLoader
 
         float scale = 1f;
         int longest = Math.Max(w, h);
-        if (maxSide > 0 && longest > maxSide) scale = (float)maxSide / longest;
+        if (fixedScale > 0f) scale = fixedScale;
+        else if (maxSide > 0 && longest > maxSide) scale = (float)maxSide / longest;
 
         int outW = Math.Max(1, (int)Math.Round(w * scale));
         int outH = Math.Max(1, (int)Math.Round(h * scale));

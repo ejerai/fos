@@ -4,6 +4,9 @@ namespace FOS.Core;
 
 public sealed class SettingsStore
 {
+    public const int MinTarget = 10;
+    public const int MaxTarget = 90;
+
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private readonly string _path;
@@ -13,7 +16,7 @@ public sealed class SettingsStore
 
     public bool IsFirstRun { get; }
 
-    public CompressProfile Profile => CompressProfile.FromStrength(Current.Strength);
+    public int TargetPercent => Current.TargetPercent;
 
     public SettingsStore(string? path = null)
     {
@@ -28,7 +31,7 @@ public sealed class SettingsStore
         lock (_lock)
         {
             change(Current);
-            Current.Strength = Math.Clamp(Current.Strength, 0, 100);
+            Current.TargetPercent = Math.Clamp(Current.TargetPercent, MinTarget, MaxTarget);
             Save();
         }
     }
@@ -42,7 +45,7 @@ public sealed class SettingsStore
                 var loaded = JsonSerializer.Deserialize<FosSettings>(File.ReadAllText(_path));
                 if (loaded != null)
                 {
-                    loaded.Strength = Math.Clamp(loaded.Strength, 0, 100);
+                    loaded.TargetPercent = Math.Clamp(loaded.TargetPercent, MinTarget, MaxTarget);
                     return loaded;
                 }
             }

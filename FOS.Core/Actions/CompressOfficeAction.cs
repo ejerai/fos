@@ -7,11 +7,11 @@ public sealed class CompressOfficeAction : IFileAction
     private static readonly HashSet<string> Extensions =
         new(StringComparer.OrdinalIgnoreCase) { ".docx", ".pptx", ".xlsx" };
 
-    private readonly Func<CompressProfile> _profile;
+    private readonly Func<int> _targetPercent;
 
-    public CompressOfficeAction(Func<CompressProfile> profile)
+    public CompressOfficeAction(Func<int> targetPercent)
     {
-        _profile = profile;
+        _targetPercent = targetPercent;
     }
 
     public string Label => "Kompres";
@@ -23,14 +23,14 @@ public sealed class CompressOfficeAction : IFileAction
 
     public async Task<ActionResult> RunAsync(IReadOnlyList<string> paths)
     {
-        var profile = _profile();
+        int target = _targetPercent();
         var saved = new List<Outcome>();
 
         foreach (var path in paths)
         {
             try
             {
-                var outcome = await Task.Run(() => CompressOne(path, profile));
+                var outcome = await Task.Run(() => CompressOne(path, target));
                 if (outcome != null) saved.Add(outcome);
             }
             catch (Exception ex)
@@ -47,43 +47,54 @@ public sealed class CompressOfficeAction : IFileAction
                     : "Semua dokumen sudah cukup kecil, tidak ada yang dihemat");
         }
 
-        long before = saved.Sum(o => o.Before);
-        long after = saved.Sum(o => o.After);
-        int percent = (int)Math.Round(100.0 * (before - after) / before);
-        string sizes = $"{FileNaming.FormatSize(before)} → {FileNaming.FormatSize(after)}, hemat {percent}%";
+        string sizes = CompressReport.Sizes(saved.Sum(o => o.Before), saved.Sum(o => o.After), target);
 
         return paths.Count == 1
             ? new ActionResult(true, $"{saved[0].Name} ({sizes})")
             : new ActionResult(true, $"{saved.Count} dokumen dikompres ({sizes})");
     }
 
-    private static Outcome? CompressOne(string path, CompressProfile profile)
+    private static Outcome? CompressOne(string path, int target)
     {
-        var dir = Path.GetDirectoryName(path) ?? "";
-        var name = Path.GetFileNameWithoutExtension(path) + "-compressed" + Path.GetExtension(path);
-        var outPath = FileNaming.UniquePath(Path.Combine(dir, name));
+        long before = new FileInfo(path).Length;
+        long goal = (long)(before * (1 - target / 100.0));
+        var trials = new Dictionary<int, string>();
+
+        long SizeAt(int level)
+        {
+            var temp = Path.GetTempFileName();
+            trials[level] = temp;
+            OfficeCompressor.Compress(path, temp, (bytes, ext) =>
+                ImageRecompressor.Recompress(bytes, ext, CompressLevels.All[level], true));
+            return new FileInfo(temp).Length;
+        }
 
         try
         {
-            OfficeCompressor.Compress(path, outPath,
-                (bytes, ext) => ImageRecompressor.Recompress(bytes, ext, profile.MaxSide, profile.Quality));
+            int best = TargetSearch.FindLevel(CompressLevels.All.Count, goal, SizeAt);
+            if (!trials.ContainsKey(best)) SizeAt(best);
 
-            long before = new FileInfo(path).Length;
-            long after = new FileInfo(outPath).Length;
+            var chosen = trials[best];
+            long after = new FileInfo(chosen).Length;
 
             // hemat kurang dari 5% dibuang
-            if (after > before * (1 - MinSavingRatio))
-            {
-                File.Delete(outPath);
-                return null;
-            }
+            if (after > before * (1 - MinSavingRatio)) return null;
+
+            var dir = Path.GetDirectoryName(path) ?? "";
+            var name = Path.GetFileNameWithoutExtension(path) + "-compressed" + Path.GetExtension(path);
+            var outPath = FileNaming.UniquePath(Path.Combine(dir, name));
+
+            File.Move(chosen, outPath, true);
+            trials.Remove(best);
 
             return new Outcome(before, after, Path.GetFileName(outPath));
         }
-        catch
+        finally
         {
-            if (File.Exists(outPath)) File.Delete(outPath);
-            throw;
+            foreach (var temp in trials.Values)
+            {
+                if (File.Exists(temp)) File.Delete(temp);
+            }
         }
     }
 }

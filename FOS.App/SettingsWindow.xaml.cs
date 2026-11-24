@@ -17,17 +17,23 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         _store = store;
 
+        TargetSlider.Minimum = SettingsStore.MinTarget;
+        TargetSlider.Maximum = SettingsStore.MaxTarget;
+
         LightButton.Tag = CompressPresets.Light;
         BalancedButton.Tag = CompressPresets.Balanced;
         StrongButton.Tag = CompressPresets.Strong;
+        LightButton.Content = $"Ringan {CompressPresets.Light}%";
+        BalancedButton.Content = $"Seimbang {CompressPresets.Balanced}%";
+        StrongButton.Content = $"Hemat {CompressPresets.Strong}%";
 
         if (firstRun)
         {
             TitleText.Text = "Selamat datang di FOS";
-            SubtitleText.Text = "Tahan Alt lalu klik file di Explorer untuk membuka menu. Pilih dulu seberapa kuat kompresinya.";
+            SubtitleText.Text = "Tahan Alt lalu klik file di Explorer untuk membuka menu. Pilih dulu berapa persen file dikecilkan.";
         }
 
-        StrengthSlider.Value = store.Current.Strength;
+        TargetSlider.Value = store.Current.TargetPercent;
         _loading = false;
         Refresh();
     }
@@ -37,15 +43,14 @@ public partial class SettingsWindow : Window
 
     private void Refresh()
     {
-        int strength = (int)StrengthSlider.Value;
-        var profile = CompressProfile.FromStrength(strength);
+        int target = (int)TargetSlider.Value;
 
-        StrengthText.Text = $"Kekuatan kompresi: {strength}%";
-        DetailText.Text = $"Kualitas gambar {profile.Quality}, sisi terpanjang maksimal {profile.MaxSide} px";
+        TargetText.Text = $"Target hemat: {target}%";
+        DetailText.Text = $"FOS memilih kualitas dan ukuran gambar sendiri supaya file mengecil sekitar {target}%.";
 
-        Mark(LightButton, strength == CompressPresets.Light);
-        Mark(BalancedButton, strength == CompressPresets.Balanced);
-        Mark(StrongButton, strength == CompressPresets.Strong);
+        Mark(LightButton, target == CompressPresets.Light);
+        Mark(BalancedButton, target == CompressPresets.Balanced);
+        Mark(StrongButton, target == CompressPresets.Strong);
     }
 
     private static void Mark(System.Windows.Controls.Button button, bool on) =>
@@ -54,10 +59,10 @@ public partial class SettingsWindow : Window
     private void OnPresetClick(object sender, RoutedEventArgs e)
     {
         if (sender is System.Windows.Controls.Button { Tag: int value })
-            StrengthSlider.Value = value;
+            TargetSlider.Value = value;
     }
 
-    private void OnStrengthChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    private void OnTargetChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_loading) return;
         Refresh();
@@ -65,7 +70,7 @@ public partial class SettingsWindow : Window
 
     private void OnSaveClick(object sender, RoutedEventArgs e)
     {
-        _store.Update(s => s.Strength = (int)StrengthSlider.Value);
+        _store.Update(s => s.TargetPercent = (int)TargetSlider.Value);
         Close();
     }
 }

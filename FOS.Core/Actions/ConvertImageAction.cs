@@ -1,56 +1,36 @@
-using SkiaSharp;
-
 namespace FOS.Core.Actions;
 
-public sealed class ConvertImageAction : IFileAction
+public sealed class CompressImageAction : IFileAction
 {
-    private static readonly HashSet<string> InputExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif" };
+    private const double MinSavingRatio = 0.05;
 
-    private readonly string _target; // "png", "jpg", atau "webp"
+    private static readonly HashSet<string> Extensions =
+        new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp" };
 
-    public ConvertImageAction(string target)
+    private readonly Func<int> _targetPercent;
+
+    public CompressImageAction(Func<int> targetPercent)
     {
-        _target = target.ToLowerInvariant();
+        _targetPercent = targetPercent;
     }
 
-    public string Label => _target switch
-    {
-        "png" => "Ke PNG",
-        "jpg" => "Ke JPG",
-        "webp" => "Ke WebP",
-        _ => "Ke " + _target
-    };
+    public string Label => "Kompres";
 
-    // Muncul kalau semua file adalah gambar yang didukung dan minimal satu
-    // belum berformat tujuan. File yang sudah berformat tujuan dilewati.
     public bool CanHandle(IReadOnlyList<string> paths) =>
-        paths.Count > 0 && paths.All(IsSupported) && paths.Any(p => !IsAlreadyTarget(p));
+        paths.Count > 0 && paths.All(p => Extensions.Contains(Path.GetExtension(p)));
 
-    private static bool IsSupported(string path) =>
-        InputExtensions.Contains(Path.GetExtension(path));
-
-    private bool IsAlreadyTarget(string path)
-    {
-        var ext = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
-        if (ext == "jpeg") ext = "jpg";
-        return ext == _target;
-    }
+    private sealed record Outcome(bool Saved, long Before, long After, string Name);
 
     public async Task<ActionResult> RunAsync(IReadOnlyList<string> paths)
     {
-        var todo = paths.Where(p => !IsAlreadyTarget(p)).ToList();
-        int skipped = paths.Count - todo.Count;
+        int target = _targetPercent();
+        var outcomes = new List<Outcome>();
 
-        int done = 0;
-        string lastMessage = "";
-
-        foreach (var path in todo)
+        foreach (var path in paths)
         {
             try
             {
-                lastMessage = await Task.Run(() => ConvertOne(path));
-                done++;
+                outcomes.Add(await Task.Run(() => CompressOne(path, target)));
             }
             catch (Exception ex)
             {
@@ -58,40 +38,57 @@ public sealed class ConvertImageAction : IFileAction
             }
         }
 
-        if (todo.Count == 1 && skipped == 0)
-            return new ActionResult(true, lastMessage);
+        var saved = outcomes.Where(o => o.Saved).ToList();
+        int skipped = outcomes.Count - saved.Count;
 
-        string message = $"{done} gambar dikonversi";
-        if (skipped > 0)
-            message += $", {skipped} dilewati (sudah {_target.ToUpperInvariant()})";
+        if (saved.Count == 0)
+        {
+            return new ActionResult(false,
+                paths.Count == 1
+                    ? "Sudah cukup kecil, tidak ada yang dihemat"
+                    : "Semua gambar sudah cukup kecil, tidak ada yang dihemat");
+        }
 
-        return new ActionResult(true, message);
+        string sizes = CompressReport.Sizes(saved.Sum(o => o.Before), saved.Sum(o => o.After), target);
+
+        if (paths.Count == 1)
+            return new ActionResult(true, $"{saved[0].Name} ({sizes})");
+
+        string tail = skipped > 0 ? $", {skipped} dilewati" : "";
+        return new ActionResult(true, $"{saved.Count} gambar dikompres ({sizes}){tail}");
     }
 
-    private string ConvertOne(string path)
+    private static Outcome CompressOne(string path, int target)
     {
-        // JPG tidak mendukung transparansi: gambar di atas latar putih
-        SKColor? background = _target == "jpg" ? SKColors.White : null;
+        var ext = Path.GetExtension(path);
+        var original = File.ReadAllBytes(path);
+        long goal = (long)(original.Length * (1 - target / 100.0));
 
-        using var bitmap = ImageLoader.Load(path, 0, background);
-        using var image = SKImage.FromBitmap(bitmap);
-
-        var (format, quality) = _target switch
+        var cache = new Dictionary<int, byte[]?>();
+        byte[]? DataAt(int level)
         {
-            "png" => (SKEncodedImageFormat.Png, 100),
-            "jpg" => (SKEncodedImageFormat.Jpeg, 90),
-            _ => (SKEncodedImageFormat.Webp, 85)
-        };
+            if (!cache.TryGetValue(level, out var data))
+            {
+                data = ImageRecompressor.Recompress(original, ext, CompressLevels.All[level], false);
+                cache[level] = data;
+            }
+            return data;
+        }
 
-        using var data = image.Encode(format, quality);
-        if (data == null)
-            throw new InvalidOperationException("Gagal menyimpan gambar");
+        int best = TargetSearch.FindLevel(CompressLevels.All.Count, goal,
+            level => DataAt(level)?.Length ?? original.Length);
 
-        var outPath = FileNaming.UniquePath(Path.ChangeExtension(path, _target));
-        File.WriteAllBytes(outPath, data.ToArray());
+        var result = DataAt(best);
 
-        long before = new FileInfo(path).Length;
-        long after = new FileInfo(outPath).Length;
-        return $"{Path.GetFileName(outPath)} ({FileNaming.FormatSize(before)} → {FileNaming.FormatSize(after)})";
+        // hemat kurang dari 5% dibuang
+        if (result == null || result.Length > original.Length * (1 - MinSavingRatio))
+            return new Outcome(false, original.Length, original.Length, Path.GetFileName(path));
+
+        var dir = Path.GetDirectoryName(path) ?? "";
+        var name = Path.GetFileNameWithoutExtension(path) + "-compressed" + ext;
+        var outPath = FileNaming.UniquePath(Path.Combine(dir, name));
+        File.WriteAllBytes(outPath, result);
+
+        return new Outcome(true, original.Length, result.Length, Path.GetFileName(outPath));
     }
 }
