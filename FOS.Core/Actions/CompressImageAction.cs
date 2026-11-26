@@ -1,5 +1,3 @@
-using SkiaSharp;
-
 namespace FOS.Core.Actions;
 
 public sealed class CompressImageAction : IFileAction
@@ -9,11 +7,11 @@ public sealed class CompressImageAction : IFileAction
     private static readonly HashSet<string> Extensions =
         new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp" };
 
-    private readonly Func<CompressProfile> _profile;
+    private readonly Func<int> _targetPercent;
 
-    public CompressImageAction(Func<CompressProfile> profile)
+    public CompressImageAction(Func<int> targetPercent)
     {
-        _profile = profile;
+        _targetPercent = targetPercent;
     }
 
     public string Label => "Kompres";
@@ -25,14 +23,14 @@ public sealed class CompressImageAction : IFileAction
 
     public async Task<ActionResult> RunAsync(IReadOnlyList<string> paths)
     {
-        var profile = _profile();
+        int target = _targetPercent();
         var outcomes = new List<Outcome>();
 
         foreach (var path in paths)
         {
             try
             {
-                outcomes.Add(await Task.Run(() => CompressOne(path, profile)));
+                outcomes.Add(await Task.Run(() => CompressOne(path, target)));
             }
             catch (Exception ex)
             {
@@ -51,10 +49,7 @@ public sealed class CompressImageAction : IFileAction
                     : "Semua gambar sudah cukup kecil, tidak ada yang dihemat");
         }
 
-        long before = saved.Sum(o => o.Before);
-        long after = saved.Sum(o => o.After);
-        int percent = (int)Math.Round(100.0 * (before - after) / before);
-        string sizes = $"{FileNaming.FormatSize(before)} → {FileNaming.FormatSize(after)}, hemat {percent}%";
+        string sizes = CompressReport.Sizes(saved.Sum(o => o.Before), saved.Sum(o => o.After), target);
 
         if (paths.Count == 1)
             return new ActionResult(true, $"{saved[0].Name} ({sizes})");
@@ -63,35 +58,37 @@ public sealed class CompressImageAction : IFileAction
         return new ActionResult(true, $"{saved.Count} gambar dikompres ({sizes}){tail}");
     }
 
-    private static Outcome CompressOne(string path, CompressProfile profile)
+    private static Outcome CompressOne(string path, int target)
     {
         var ext = Path.GetExtension(path);
-        var (format, quality) = ext.ToLowerInvariant() switch
+        var original = File.ReadAllBytes(path);
+        long goal = (long)(original.Length * (1 - target / 100.0));
+
+        var cache = new Dictionary<int, byte[]?>();
+        byte[]? DataAt(int level)
         {
-            ".png" => (SKEncodedImageFormat.Png, 100),
-            ".webp" => (SKEncodedImageFormat.Webp, profile.Quality),
-            _ => (SKEncodedImageFormat.Jpeg, profile.Quality)
-        };
+            if (!cache.TryGetValue(level, out var data))
+            {
+                data = ImageRecompressor.Recompress(original, ext, CompressLevels.All[level], false);
+                cache[level] = data;
+            }
+            return data;
+        }
 
-        SKColor? background = format == SKEncodedImageFormat.Jpeg ? SKColors.White : null;
+        int best = TargetSearch.FindLevel(CompressLevels.All.Count, goal,
+            level => DataAt(level)?.Length ?? original.Length);
 
-        using var bitmap = ImageLoader.Load(path, profile.MaxSide, background);
-        using var image = SKImage.FromBitmap(bitmap);
-        using var data = image.Encode(format, quality);
-        if (data == null)
-            throw new InvalidOperationException("Gagal menyimpan gambar");
-
-        long before = new FileInfo(path).Length;
+        var result = DataAt(best);
 
         // hemat kurang dari 5% dibuang
-        if (data.Size > before * (1 - MinSavingRatio))
-            return new Outcome(false, before, before, Path.GetFileName(path));
+        if (result == null || result.Length > original.Length * (1 - MinSavingRatio))
+            return new Outcome(false, original.Length, original.Length, Path.GetFileName(path));
 
         var dir = Path.GetDirectoryName(path) ?? "";
         var name = Path.GetFileNameWithoutExtension(path) + "-compressed" + ext;
         var outPath = FileNaming.UniquePath(Path.Combine(dir, name));
-        File.WriteAllBytes(outPath, data.ToArray());
+        File.WriteAllBytes(outPath, result);
 
-        return new Outcome(true, before, new FileInfo(outPath).Length, Path.GetFileName(outPath));
+        return new Outcome(true, original.Length, result.Length, Path.GetFileName(outPath));
     }
 }
